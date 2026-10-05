@@ -47,6 +47,14 @@ export function toDiscoveryRow(record, { marketProvider = null } = {}) {
     creation_timestamp: record.pairCreatedAtSec ?? null,
     volume_1h: record.activity?.volume1hUsd ?? null,
     volume_5m: record.activity?.volume5mUsd ?? null,
+    // USD and count flow in the AVE row vocabulary so the P3 signal layer
+    // reads ingest rows with the same aliases it reads AVE trending rows.
+    // Absent stays null — a missing buy/sell split must degrade the read,
+    // never fabricate balance.
+    buy_volume_5m: record.activity?.buyVolume5mUsd ?? null,
+    sell_volume_5m: record.activity?.sellVolume5mUsd ?? null,
+    buys_5m: record.activity?.txns5m?.buys ?? null,
+    sells_5m: record.activity?.txns5m?.sells ?? null,
     holder_count: record.holders ?? null,
     marketProvider: marketProvider || providerForSource(record.source),
     ingestSource: record.source ?? null,

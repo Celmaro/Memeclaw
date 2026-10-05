@@ -24,6 +24,10 @@ function defaultState() {
     supportedChains: ['sol', 'bsc', 'base', 'eth', 'robinhood'],
     chainStates: {},
     riskExclusions: {},
+    // key -> last published timestamp. P3 publish dedup binds here so a
+    // rotation cannot re-alert the same lead; plain object by design, which
+    // is exactly the store shape publishDedup() accepts without an adapter.
+    dedupEntries: {},
     scanCount: 0,
     discoveredCount: 0,
     prequalifiedCount: 0,
@@ -67,7 +71,12 @@ function migrateState(raw) {
     auditQueue: Array.isArray(raw.auditQueue) ? raw.auditQueue : [],
     liveLeads: cleanLeads(raw.liveLeads, activeChain),
     outcomes: Array.isArray(raw.outcomes) ? raw.outcomes : [],
-    events: Array.isArray(raw.events) ? raw.events : []
+    events: Array.isArray(raw.events) ? raw.events : [],
+    // A corrupt or legacy-typed dedup table must not poison the publish
+    // cooldown; anything that is not a plain object resets to empty (a
+    // missing key reads as "never sent", which only ever over-sends once).
+    dedupEntries: raw.dedupEntries && typeof raw.dedupEntries === 'object' && !Array.isArray(raw.dedupEntries)
+      ? raw.dedupEntries : {}
   };
 }
 

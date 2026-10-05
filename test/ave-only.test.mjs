@@ -15,8 +15,19 @@ test('AVE production has no retired provider client, key store, worker or extern
     if (visited.has(file)) return;
     visited.add(file);
     const source = fs.readFileSync(file, 'utf8');
-    const imports = [...source.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)['"]([^'"]+)['"]/g)];
-    for (const [, specifier] of imports) {
+    // Match STATEMENTS, not prose. The old anywhere-regex read any `from "…"`
+    // as an import specifier, so an ordinary comment ("… from \"never
+    // measured\"") failed the graph — this false positive has now fired twice
+    // (record.mjs in P1, signals.mjs in P3). ESM static imports are always
+    // statements, so line-anchored matching still catches every real one:
+    // `import … from '…'`, `export … from '…'`, side-effect `import '…'`,
+    // and dynamic `import('…')` (kept unanchored — it may appear mid-line).
+    const imports = [
+      ...[...source.matchAll(/^\s*(?:import|export)\s[^;'"]*?\bfrom\s*['"]([^'"]+)['"]/gm)].map(match => match[1]),
+      ...[...source.matchAll(/^\s*import\s*['"]([^'"]+)['"]/gm)].map(match => match[1]),
+      ...[...source.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g)].map(match => match[1])
+    ];
+    for (const specifier of imports) {
       assert.doesNotMatch(specifier, /gmgn/i, file);
       assert.ok(specifier.startsWith('.') || specifier.startsWith('node:'), `Unexpected runtime dependency: ${specifier}`);
       if (specifier.startsWith('.')) visit(path.resolve(path.dirname(file), specifier));

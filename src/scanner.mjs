@@ -8,6 +8,7 @@ import { collectOutcomeSamples, selectOutcomeJobs, outcomeCoverage, sampleReject
 import { tokenKey } from './local-store.mjs';
 import { reconcileLiveLeads } from './live-leads.mjs';
 import { toDiscoveryRow } from './ingest/row-contract.mjs';
+import { signalEvidenceBundle } from './ingest/signals.mjs';
 
 const numberOrNull = value => {
   if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null;
@@ -806,6 +807,15 @@ export class Scanner {
           const auditedAt = Date.now();
           const secondaryWebsite = secondary?.market?.websites?.[0] || '';
           const marketBehaviorReason = deep.marketBehavior?.downgradeReasons?.join('；') || '';
+          // P3 signal evidence rides the candidate under `deep.signal`. The
+          // attachment point is deliberate: classifyDeepResult() already ran
+          // at this row above, so "signals are evidence, not gates" is
+          // structural — the classifier can never have read these fields, and
+          // it reads only failed/unknownFields/blockingUnknownFields/
+          // honeypotEvidence/chainPass regardless. Absent inputs arrive as
+          // `degraded` (bundle carries no neutral-50 placeholder numbers the
+          // UI could mistake for a real reading).
+          deep.signal = signalEvidenceBundle(item.row, { now: auditedAt });
           const candidate = {
             ...visibleToken,
             status: classification.status,
