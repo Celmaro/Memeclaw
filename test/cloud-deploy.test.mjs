@@ -95,7 +95,14 @@ test('trusted Host does not relax Origin or Sec-Fetch-Site rules', () => {
   const cloud = { ...settings, trustedHosts: ['radar.example.com'] };
   assert.equal(isTrustedLocalRequest(request({ headers: { origin: 'http://evil.example.com' } }), cloud), false);
   assert.equal(isTrustedLocalRequest(request({ headers: { 'sec-fetch-site': 'cross-site' } }), cloud), false);
-  assert.equal(isTrustedLocalRequest(request({ headers: { origin: 'https://radar.example.com' } }), cloud), false);
+  // A TLS-terminating proxy makes the browser send an https Origin for the very
+  // Host the operator trusted; scheme must not veto that, but the Host match
+  // still decides. A foreign https Origin is still rejected.
+  assert.equal(isTrustedLocalRequest(request({ headers: { origin: 'https://radar.example.com' } }), cloud), true);
+  assert.equal(isTrustedLocalRequest(request({ headers: { origin: 'https://evil.example.com' } }), cloud), false);
+  // A non-HTTP scheme is not an Origin at all.
+  assert.equal(isTrustedLocalRequest(request({ headers: { origin: 'null' } }), cloud), false);
+  assert.equal(isTrustedLocalRequest(request({ headers: { origin: 'ftp://radar.example.com' } }), cloud), false);
   // A missing Origin passes this gate exactly as it does on the desktop; the
   // requirement that /api/update-check and /api/update-install carry an
   // explicit Origin is enforced by those route handlers, not here, and the

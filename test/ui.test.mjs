@@ -341,7 +341,7 @@ test('翻译词典完整覆盖静态挂点和动态文案键', () => {
   for (const key of new Set([...staticKeys, ...dynamicKeys])) assert.ok(messages[key], '缺少翻译键：' + key);
 });
 
-test('顶部链标签可直接加入或切换扫描，且始终最多三条', async () => {
+test('顶部链标签可直接加入或切换扫描，且始终最多五条', async () => {
   for (const chain of ['sol', 'bsc', 'base', 'eth', 'robinhood']) {
     assert.match(html, new RegExp("id: '" + chain + "'"));
   }
@@ -356,6 +356,7 @@ test('顶部链标签可直接加入或切换扫描，且始终最多三条', as
       chainSwitching: false, selectedChainsDirty: true, viewChain: view,
       lastData: { activeChain: active, supportedChains: ['sol', 'bsc', 'base', 'eth', 'robinhood'], scheduler: { enabledChains: enabled, scanningChain: active } },
       byId: id => elements[id], chainLabel: chain => chain.id, escapeHtml: String, t: key => key,
+      MAX_SCAN_CHAINS: 5,
       showToast: value => toasts.push(value), currentLocale: 'en', hasChinese: () => false,
       postLocal: async (url, body) => { requests.push({ url, body }); return { enabledChains: body.chains }; },
       writeStorage: (key, value) => storage.push({ key, value }), refresh: async () => {}
@@ -382,10 +383,17 @@ test('顶部链标签可直接加入或切换扫描，且始终最多三条', as
   assert.deepEqual(JSON.parse(JSON.stringify(adding.requests)), [{ url: '/api/scan-chains', body: { chains: ['bsc', 'base'] } }]);
   assert.equal(adding.context.viewChain, 'base');
 
+  // With room under the cap the chain is appended rather than replacing one.
   const replacing = harness(['bsc', 'sol', 'base'], 'bsc');
   await replacing.context.switchActiveChain('eth');
-  assert.deepEqual(JSON.parse(JSON.stringify(replacing.requests)), [{ url: '/api/scan-chains', body: { chains: ['eth', 'sol', 'base'] } }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(replacing.requests)), [{ url: '/api/scan-chains', body: { chains: ['bsc', 'sol', 'base', 'eth'] } }]);
   assert.equal(replacing.context.viewChain, 'eth');
+
+  // The fifth chain still fits the cap, so it is appended.
+  const full = harness(['bsc', 'sol', 'base', 'eth'], 'bsc');
+  await full.context.switchActiveChain('robinhood');
+  assert.deepEqual(JSON.parse(JSON.stringify(full.requests)), [{ url: '/api/scan-chains', body: { chains: ['bsc', 'sol', 'base', 'eth', 'robinhood'] } }]);
+  assert.equal(full.context.viewChain, 'robinhood');
 
   const viewing = harness(['bsc', 'sol'], 'bsc');
   await viewing.context.switchActiveChain('sol');

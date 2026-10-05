@@ -1481,6 +1481,9 @@
       { id: 'eth', labelKey: 'chainEth' },
       { id: 'robinhood', labelKey: 'chainRobinhood' }
     ];
+    // Every catalogued chain may be scanned at once, matching the server-side
+    // cap. A smaller ceiling here would silently drop the operator's choice.
+    const MAX_SCAN_CHAINS = chainCatalog.length;
 
     function chainLabel(chain) {
       return chain && chain.labelKey ? t(chain.labelKey) : String(chain && chain.label || '');
@@ -2128,10 +2131,10 @@
       try {
         let notice = 'switchAccepted';
         if (!enabled.includes(chain)) {
-          const next = enabled.slice(0, 3);
+          const next = enabled.slice(0, MAX_SCAN_CHAINS);
           const fallback = activeChain(lastData);
           if (!next.length && supported.includes(fallback) && fallback !== chain) next.push(fallback);
-          if (next.length < 3 && !next.includes(chain)) next.push(chain);
+          if (next.length < MAX_SCAN_CHAINS && !next.includes(chain)) next.push(chain);
           else {
             const replacement = next.indexOf(currentView);
             next[replacement >= 0 ? replacement : next.length - 1] = chain;
@@ -2774,7 +2777,7 @@
     byId('scanSelection').addEventListener('change', function () { selectedChainsDirty = true; });
     byId('saveChains').addEventListener('click', async function () {
       const chains = Array.from(byId('scanSelection').querySelectorAll('input:checked')).map(function (input) { return input.value; });
-      if (!chains.length || chains.length > 3) return showToast(t('chainSelectionInvalid'));
+      if (!chains.length || chains.length > MAX_SCAN_CHAINS) return showToast(t('chainSelectionInvalid'));
       try {
         await postLocal('/api/scan-chains', { chains: chains });
         selectedChainsDirty = false;

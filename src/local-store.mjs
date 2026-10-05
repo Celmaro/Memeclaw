@@ -40,22 +40,30 @@ export function readJsonWithBackup(file, fallback) {
   throw Object.assign(new Error('本地记录与备份均无法读取，请保留文件后检查。'), { code: 'STATE_CORRUPT' });
 }
 
+// The number of chains one deployment may scan at once. It matches the
+// supported set so an operator running every chain is not silently truncated.
+export const MAX_ENABLED_CHAINS = 5;
+
 export function tokenKey(chain, address) {
   const value = String(address || '').trim();
   return `${chain}:${chain === 'sol' ? value : value.toLowerCase()}`;
 }
 
 export class RadarControls {
-  constructor(dir, chains, initialChain) {
+  constructor(dir, chains, initialChain, limit = MAX_ENABLED_CHAINS) {
     this.file = path.join(dir, 'preferences.json');
     this.chains = chains;
+    // The cap is the full supported set: the operator already decided which
+    // chains this build may expose, so a second, smaller ceiling only made
+    // "scan every chain" impossible to express.
+    this.limit = Math.max(1, Math.min(chains.length, Number.isInteger(limit) && limit > 0 ? limit : chains.length));
     const defaults = { enabledChains: [initialChain], annotations: {} };
     this.value = { ...defaults, ...readJsonWithBackup(this.file, defaults).value };
-    this.value.enabledChains = [...new Set(this.value.enabledChains)].filter(x => chains.includes(x)).slice(0, 3);
+    this.value.enabledChains = [...new Set(this.value.enabledChains)].filter(x => chains.includes(x)).slice(0, this.limit);
     if (!this.value.enabledChains.length) this.value.enabledChains = [initialChain];
   }
   setChains(chains) {
-    if (!Array.isArray(chains) || !chains.length || chains.length > 3 || new Set(chains).size !== chains.length || chains.some(x => !this.chains.includes(x))) {
+    if (!Array.isArray(chains) || !chains.length || chains.length > this.limit || new Set(chains).size !== chains.length || chains.some(x => !this.chains.includes(x))) {
       throw Object.assign(new Error('invalid_selection'), { statusCode: 400 });
     }
     this.value.enabledChains = [...chains];

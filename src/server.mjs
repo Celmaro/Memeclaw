@@ -697,7 +697,11 @@ export function isTrustedLocalRequest(req, settings) {
     let originHost;
     try {
       const parsed = new URL(String(origin));
-      if (parsed.protocol !== 'http:') return false;
+      // A reverse proxy usually terminates TLS, so the browser's Origin scheme
+      // is not necessarily the scheme this process speaks. Trust is decided by
+      // the exact Host match below; pinning the scheme only rejected a page's
+      // own HTTPS requests behind such a proxy.
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
       originHost = parsed.host.toLowerCase();
     } catch {
       return false;
@@ -718,8 +722,8 @@ export function isTrustedLocalRequest(req, settings) {
   } catch { return false; }
 }
 
-export function healthSnapshot(source = {}, settings, now = Date.now()) {
-  const maxAgeMs = scannerFreshnessMaxAge(settings);
+export function healthSnapshot(source = {}, settings, now = Date.now(), rotationMs = 0) {
+  const maxAgeMs = scannerFreshnessMaxAge(settings, rotationMs);
   const lastSuccessAt = finite(source.lastSuccessAt);
   const ageMs = lastSuccessAt > 0 ? Math.max(0, now - lastSuccessAt) : null;
   const fresh = ageMs !== null && ageMs <= maxAgeMs;
@@ -745,12 +749,19 @@ export function healthSnapshot(source = {}, settings, now = Date.now()) {
   };
 }
 
-function scannerFreshnessMaxAge(settings = {}) {
+// How long a chain's last success still counts as fresh. With several chains
+// sharing one provider key, the real interval between two turns of the SAME
+// chain is the whole rotation, not one scan interval; judging freshness by the
+// scan interval alone declared healthy chains degraded for most of every
+// rotation. rotationMs is that nominal per-chain period when it is known.
+function scannerFreshnessMaxAge(settings = {}, rotationMs = 0) {
   const interval = finite(settings.scanIntervalMs, 120_000);
-  return Math.max(5 * 60_000, Math.min(60 * 60_000, interval * 3));
+  const rotation = Math.max(0, finite(rotationMs));
+  const floor = rotation > 0 ? Math.max(interval * 3, rotation * 1.5) : interval * 3;
+  return Math.max(5 * 60_000, Math.min(60 * 60_000, floor));
 }
 
-function selectedChainScope(source, chain, enabledChains, settings, now = Date.now()) {
+function selectedChainScope(source, chain, enabledChains, settings, now = Date.now(), rotationMs = 0) {
   if (!chain) return source;
   // Older embedders may omit RadarControls. In that case the enabled set is
   // unknown, so retain the legacy assumption that a supported chain is live.
@@ -1098,7 +1109,10 @@ export function createServer({ state, settings, controls, switchChain,
           supportedChains: state.value.supportedChains, events: state.value.events, riskExclusions: state.value.riskExclusions,
           policy: { ...state.value.policy, chain }, scanInProgress: false }
         : state.value;
-      const selected = selectedChainScope(storedSelection, chain, configuredEnabledChains, settings);
+      // The rotation period is a property of the scheduler, not of the chain view,
+      // so read it before deciding whether this scope's last success is fresh.
+      const rotationMs = finite(readSnapshot(() => getSchedulerStatus?.(text(chain, 32)))?.nominalChainIntervalMs);
+      const selected = selectedChainScope(storedSelection, chain, configuredEnabledChains, settings, Date.now(), rotationMs);
       const scheduler = publicScheduler(readSnapshot(() => getSchedulerStatus?.(selected.activeChain)), enabledChains, selected.activeChain, publicChains);
       const annotations = Object.fromEntries(Object.entries(controls?.value.annotations || {}).filter(([, value]) =>
         publicChains.has(text(value?.chain, 32).toLowerCase())).slice(0, 500).map(([key, value]) => [key, {
@@ -1158,7 +1172,12 @@ export function createServer({ state, settings, controls, switchChain,
       }
       return sendJson(res, 200, output, csp);
     }
-    if (url.pathname === '/health') return sendJson(res, 200, healthSnapshot(state.value, settings), csp);
+    if (url.pathname === '/health') {
+      // Judge freshness against the rotation this deployment actually runs,
+      // so a shared-key multi-chain setup is not reported degraded mid-rotation.
+      const rotation = finite(readSnapshot(() => getSchedulerStatus?.())?.nominalChainIntervalMs);
+      return sendJson(res, 200, healthSnapshot(state.value, settings, Date.now(), rotation), csp);
+    }
     const assets = { '/voice-ui.mjs': ['voice-ui.mjs', 'text/javascript; charset=utf-8'],
       '/voice-alerts.mjs': ['voice-alerts.mjs', 'text/javascript; charset=utf-8'],
       '/voice-player.mjs': ['voice-player.mjs', 'text/javascript; charset=utf-8'] };

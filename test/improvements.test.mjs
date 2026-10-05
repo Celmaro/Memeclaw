@@ -65,7 +65,10 @@ test('favorites and notes persist with exact Solana keys, bounded input and safe
   assert.equal(Object.keys(controls.value.annotations).length,2);
   controls.setChains(['sol','bsc','base']);
   assert.deepEqual(new RadarControls(dir,config.supportedChains,'robinhood').value.enabledChains,['sol','bsc','base']);
-  assert.throws(() => controls.setChains(['sol','bsc','eth','base']));
+  // Every supported chain may be scanned together; only an out-of-range or
+  // duplicated selection is invalid.
+  assert.deepEqual(controls.setChains(['sol','bsc','eth','base']).enabledChains,['sol','bsc','eth','base']);
+  assert.throws(() => controls.setChains([...config.supportedChains, 'sol']));
   assert.throws(() => controls.annotate({chain:'bsc',address:'../../x',favorite:true,note:'x'}));
 });
 
