@@ -133,6 +133,20 @@ test('status exposes allowlisted shared scheduling and market-only screening wit
   assert.equal(body.screening.mode, 'market_only'); assert.equal(body.screening.securityStatus, 'UNVERIFIED');
   assert.equal(body.screening.deepAuditEnabled, false); assert.equal(body.screening.checkedAt, observedAt);
   assert.equal(body.screening.reasonCounts.stale, 4); assert.doesNotMatch(JSON.stringify(body), /not-public|rawSecret|secret-chain/);
+  // Absent knobs must report 0 rather than becoming undefined or NaN.
+  assert.deepEqual(body.screening.limits, { maxDeepAuditsPerCycle: 0, enrichLimit: 0, maxTrendingPages: 0 });
+});
+
+test('status reports the configured evidence budget, including an enabled deep audit', async () => {
+  const now = Date.now();
+  const server = createServer({ settings: { ...settings, maxDeepAuditsPerCycle: 3, enrichLimit: 6, maxTrendingPages: 3 },
+    state: { value: { activeChain: 'bsc', status: 'RUNNING', lastSuccessAt: now, chainStates: {} } },
+    controls: { value: { enabledChains: ['bsc'], annotations: {} } } });
+  const { body } = await dispatch(server, '/api/status', { method: 'GET' });
+  // An operator must be able to confirm the running read shape without reading
+  // rejection counts, and a junk value must degrade to 0 instead of leaking NaN.
+  assert.equal(body.screening.deepAuditEnabled, true);
+  assert.deepEqual(body.screening.limits, { maxDeepAuditsPerCycle: 3, enrichLimit: 6, maxTrendingPages: 3 });
 });
 
 test('unpredictable selected-chain turn clears its obsolete timer instead of promising a retry', async () => {

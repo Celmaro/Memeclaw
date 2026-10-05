@@ -843,6 +843,11 @@ function publicScreening(source = {}, settings = {}) {
   source ||= {};
   return { mode: 'market_only', securityStatus: 'UNVERIFIED', deepAuditEnabled: settings.maxDeepAuditsPerCycle > 0,
     checkedAt: nonnegative(source.checkedAt), countsAvailable: source.checkedAt > 0,
+    // The three operator knobs that decide how much evidence a cycle is allowed
+    // to gather. Exposed so a wide or narrow funnel is a visible setting rather
+    // than a guess from rejection counts.
+    limits: { maxDeepAuditsPerCycle: nonnegative(settings.maxDeepAuditsPerCycle),
+      enrichLimit: nonnegative(settings.enrichLimit), maxTrendingPages: nonnegative(settings.maxTrendingPages) },
     ...Object.fromEntries(['received', 'marketQualified', 'filtered'].map(key => [key, nonnegative(source[key])])),
     reasonCounts: Object.fromEntries(SCREENING_REASON_KEYS.map(key => [key, nonnegative(source.reasonCounts?.[key])])) };
 }
