@@ -40,9 +40,15 @@ let scanner;
 // Production discovery deliberately performs one hot-list read per turn. The
 // current AVE head response already carries the card fields; pagination and
 // automatic per-token completion must not amplify a shared-key rate limit.
+// That posture is the default in config.mjs; an operator who has headroom can
+// widen it per environment without touching this file.
 const sharedRequestIntervalMs = 5 * 60_000;
-const market = new AveClient({ directory: config.stateDir, apiKeyProvider: () => ave.getKey(), enrichLimit: 0,
-  maxTrendingPages: 1, rotateTrendingPages: true, minimumGapMs: sharedRequestIntervalMs });
+const market = new AveClient({ directory: config.stateDir, apiKeyProvider: () => ave.getKey(),
+  enrichLimit: config.enrichLimit, maxTrendingPages: config.maxTrendingPages,
+  // AveClient rejects rotateTrendingPages unless it is pinned to a single page
+  // (ave.mjs:499), so rotation is exactly the one-page default, not a constant.
+  rotateTrendingPages: config.maxTrendingPages === 1,
+  minimumGapMs: sharedRequestIntervalMs });
 const ave = createAveSettings({ directory: config.stateDir,
   verifyData: (key, options) => market.verifyApiKey(key, options),
   onChange: () => { market.resetCredentials(); scanner?.requestCycle(); }

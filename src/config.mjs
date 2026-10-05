@@ -47,6 +47,16 @@ export const config = Object.freeze({
   // provider rate bucket and must never stall the primary discovery lane.
   maxDeepAuditsPerCycle: boundedInteger(process.env.MAX_DEEP_AUDITS_PER_CYCLE, 0, 0, 12),
   auditCycleBudgetMs: 80_000,
+  // Discovery read shape, split out of main.mjs so an operator can widen the
+  // funnel without a rebuild. Both default to the conservative one-read,
+  // zero-completion posture the shared-key rate limit was sized for; raising
+  // them trades AVE quota for in-range leads, so each ceiling is capped at the
+  // most the provider client itself considers sane.
+  // Ceilings mirror AveClient's own input validation (ave.mjs:497-498), not
+  // taste: a value outside them is rejected at construction with INPUT/400,
+  // so bounding them here turns a crash-on-boot into an ignored variable.
+  enrichLimit: boundedInteger(process.env.RADAR_ENRICH_LIMIT, 0, 0, 6),
+  maxTrendingPages: boundedInteger(process.env.RADAR_MAX_TRENDING_PAGES, 1, 1, 3),
   // Historical K-line backfills are optional; live observations still track outcomes.
   outcomeReadsPerCycle: 0,
   xReviewMode: 'manual',

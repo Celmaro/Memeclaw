@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isTrustedLocalRequest } from '../src/server.mjs';
+import { AveClient } from '../src/ave.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const settings = { port: 3791, scanIntervalMs: 120_000, publicDir: path.join(ROOT, 'public') };
@@ -134,6 +135,46 @@ test('a loopback peer may use a trusted Host, as a local proxy test does', () =>
     socket: { remoteAddress: '127.0.0.1' },
     headers: { host: 'radar.example.com', origin: 'http://radar.example.com', 'sec-fetch-site': 'same-origin' }
   }, cloud), true);
+});
+
+test('discovery read-shape knobs default to the conservative production posture', async () => {
+  const config = await loadConfig({ RADAR_ENRICH_LIMIT: undefined, RADAR_MAX_TRENDING_PAGES: undefined });
+  assert.equal(config.enrichLimit, 0);
+  assert.equal(config.maxTrendingPages, 1);
+});
+
+test('discovery read-shape knobs are read from the environment within provider limits', async () => {
+  assert.equal((await loadConfig({ RADAR_ENRICH_LIMIT: '6' })).enrichLimit, 6);
+  assert.equal((await loadConfig({ RADAR_MAX_TRENDING_PAGES: '3' })).maxTrendingPages, 3);
+  // Junk, fractions, negatives and out-of-range values fall back rather than
+  // reaching the provider, where AveClient would reject them at construction
+  // with INPUT/400.
+  for (const value of ['', 'abc', '2.5', '-1', '99']) {
+    const config = await loadConfig({ RADAR_ENRICH_LIMIT: value, RADAR_MAX_TRENDING_PAGES: value });
+    assert.equal(config.enrichLimit, 0, value);
+    assert.equal(config.maxTrendingPages, 1, value);
+  }
+  // Number() also accepts padded and alternate-radix literals; the range bound
+  // still applies, which is the property that matters for the provider client.
+  assert.equal((await loadConfig({ RADAR_ENRICH_LIMIT: ' 4 ' })).enrichLimit, 4);
+  assert.equal((await loadConfig({ RADAR_ENRICH_LIMIT: '0x7' })).enrichLimit, 0);
+  // enrichLimit may be 0 but maxTrendingPages may not: page 0 would read nothing.
+  assert.equal((await loadConfig({ RADAR_ENRICH_LIMIT: '4', RADAR_MAX_TRENDING_PAGES: '0' })).enrichLimit, 4);
+  assert.equal((await loadConfig({ RADAR_ENRICH_LIMIT: '4', RADAR_MAX_TRENDING_PAGES: '0' })).maxTrendingPages, 1);
+});
+
+test('knob values accepted by config are also accepted by AveClient', async () => {
+  // The config bounds exist only because the provider client enforces the same
+  // ones; assert the two agree so an operator cannot set a value that boots
+  // config.mjs cleanly and then dies in main.mjs.
+  for (const [enrich, pages] of [[0, 1], [6, 1], [6, 3]]) {
+    const config = await loadConfig({ RADAR_ENRICH_LIMIT: String(enrich), RADAR_MAX_TRENDING_PAGES: String(pages) });
+    assert.doesNotThrow(() => new AveClient({ directory: path.join(ROOT, 'state'),
+      apiKeyProvider: () => '', enrichLimit: config.enrichLimit, maxTrendingPages: config.maxTrendingPages,
+      // main.mjs pins rotation to the single-page case; AveClient rejects the
+      // combination otherwise (ave.mjs:499).
+      rotateTrendingPages: config.maxTrendingPages === 1 }), `${enrich}/${pages}`);
+  }
 });
 
 test('a trusted Host is not trusted from an unlisted remote peer substitution', () => {
