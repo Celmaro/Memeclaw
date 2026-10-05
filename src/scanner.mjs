@@ -7,6 +7,7 @@ import { tokenInfoPrice } from './ave.mjs';
 import { collectOutcomeSamples, selectOutcomeJobs, outcomeCoverage, sampleRejected } from './outcomes.mjs';
 import { tokenKey } from './local-store.mjs';
 import { reconcileLiveLeads } from './live-leads.mjs';
+import { toDiscoveryRow } from './ingest/row-contract.mjs';
 
 const numberOrNull = value => {
   if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null;
@@ -415,14 +416,27 @@ function addEvent(events, type, message, chain, data = {}) {
   return [{ at: Date.now(), type, message, chain, ...data }, ...(events || [])].slice(0, 500);
 }
 
+// The discovery funnel's provider filter: the canonical AVE introducer plus
+// whatever the ingest coordinator registered. Built from the coordinator's own
+// `providers` getter, so an emitter cannot smuggle in a tag the coordinator
+// was not constructed with — the filter widens only when ingest is wired.
+export function allowedDiscoveryRow(row, providers) {
+  return row?.marketProvider === 'AVE'
+    || (Array.isArray(providers) && providers.includes(row?.marketProvider));
+}
+
 export class Scanner {
-  constructor({ provider, secondary = null, state, controls = null, settings = config, sharedRequestIntervalMs = 5 * 60_000 }) {
+  constructor({ provider, secondary = null, state, controls = null, settings = config, sharedRequestIntervalMs = 5 * 60_000, ingest = null }) {
     this.provider = provider;
     this.cycleController = null;
     this.secondary = secondary;
     this.state = state;
     this.controls = controls;
     this.config = settings;
+    // Optional multi-emitter discovery (GeckoTerminal new_pools …). It runs
+    // OFF the AVE shared clock on its own per-host budgets; null keeps the
+    // cycle byte-for-byte on the original single-source path.
+    this.ingest = ingest;
     this.sharedRequestIntervalMs = Math.max(0, num(sharedRequestIntervalMs));
     this.supportedChains = [...settings.supportedChains];
     this.activeChain = this.supportedChains.includes(state.value.activeChain) ? state.value.activeChain : settings.chain;
@@ -615,11 +629,28 @@ export class Scanner {
       let discovered = await this.provider.discover(chain, { signal: controller.signal });
       if (controller.signal.aborted) return;
       if (this.provider.keyEpoch !== keyEpoch) return;
-      discovered = discovered.filter(row => row?.marketProvider === 'AVE');
+      // Ingest emitters (GeckoTerminal new_pools …) run off the AVE shared
+      // clock on their own per-host budgets. Fail-open by design: an error,
+      // throttle or timeout contributes no rows and one finding below — it
+      // never fails the cycle and never masquerades as "no launches today".
+      let ingestRows = [];
+      const ingestFindings = [];
+      if (this.ingest) {
+        try {
+          const ingested = await this.ingest.discover(chain, { rotationId: num(prior.scanCount) + 1 });
+          ingestRows = ingested.records.map(record => toDiscoveryRow(record)).filter(Boolean);
+          ingestFindings.push(...(ingested.findings || []));
+        } catch (error) {
+          ingestFindings.push({ level: 'error', chain, source: 'ingest', reason: `ingest discovery failed: ${error.message}` });
+        }
+      }
+      discovered = discovered.filter(row => allowedDiscoveryRow(row, this.ingest?.providers));
       const reviewRequests = [...this.requestedReviews.values()].filter(item => item.chain === chain
         && item.epoch === keyEpoch && Date.now() - item.at <= 10 * 60000);
-      // Current discovery wins over a queued preview snapshot when both exist.
-      discovered = [...new Map([...reviewRequests.map(item => item.row), ...discovered].map(row => [addressKey(row.address), row])).values()];
+      // Current AVE discovery wins the address (it carries verified freshness
+      // clocks), ingest rows rank between that and a queued preview snapshot,
+      // so a brand-new GT pool address still surfaces exactly once.
+      discovered = [...new Map([...reviewRequests.map(item => item.row), ...ingestRows, ...discovered].map(row => [addressKey(row.address), row])).values()];
       const discoveredByAddress = new Map(discovered.filter(row => row?.address).map(row => [addressKey(row.address), row]));
       const screened = discovered.map(row => {
         const screen = discoveryScreen(row, settings);
@@ -681,6 +712,11 @@ export class Scanner {
         Math.max(OUTCOME_SAMPLE_GRACE_MS, num(settings.scanIntervalMs) * 2)
       );
       let events = prior.events || [];
+      for (const finding of ingestFindings) {
+        if (finding.level === 'info') continue;
+        events = addEvent(events, 'INGEST', finding.reason, chain,
+          { stage: 'discovery', source: finding.source || 'ingest' });
+      }
       let lastAuditHealth = prior.sourceHealth?.lastAudit || null;
       let lastSecondaryHealth = prior.sourceHealth?.lastSecondary || null;
       let auditHadError = false;

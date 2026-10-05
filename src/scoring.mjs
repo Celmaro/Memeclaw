@@ -274,7 +274,25 @@ export function knownRiskReasons(row, config) {
 
 export function discoveryScreen(row, config, nowSec = Date.now() / 1000) {
   if (row?.marketProvider === 'AVE') return aveDiscoveryScreen(row, config, nowSec);
-  const mcValue = optionalNumber(first(row.market_cap, row.usd_market_cap, row.mcp));
+  // Non-AVE branch: feeds the SAME deep-audit gate every entrance uses. Two
+  // deliberate changes from the original fail-closed skeleton, both because
+  // this branch now runs for real discovery sources:
+  //   1. FDV substitutes for an unreported market cap, labelled — fresh GT
+  //      pools report market_cap_usd null (robinhood 0/20, base 0/20, bsc
+  //      0/40 measured) while fdv_usd is populated. The substitution happens
+  //      HERE, where the band is known, never in the adapter (record.mjs:
+  //      collapsing FDV into marketCap hides the label).
+  //   2. Security evidence has three states, not two. KNOWN adverse values
+  //      reject. A safety field that is PRESENT but unreadable also rejects:
+  //      a source that sent risk data we cannot parse is worse than one that
+  //      never had it (the original fail-closed contract, test-encoded). Only
+  //      an entirely ABSENT field is unknown evidence — what discovery sources
+  //      without a security payload look like — so it is reported in
+  //      unknownFields and the decision belongs to deep audit (GoPlus /
+  //      riskExclusions), matching what aveDiscoveryScreen already does.
+  const mcDirect = optionalNumber(first(row.market_cap, row.usd_market_cap, row.mcp));
+  const mcFdv = mcDirect === null ? optionalNumber(row.fdv_usd) : null;
+  const mcValue = mcDirect ?? mcFdv;
   const createdValue = optionalNumber(first(row.creation_timestamp, row.created_timestamp, row.open_timestamp));
   const liquidityValue = optionalNumber(row.liquidity);
   const rug = optionalRate(row.rug_ratio);
@@ -282,6 +300,7 @@ export function discoveryScreen(row, config, nowSec = Date.now() / 1000) {
   const insider = optionalRate(first(row.rat_trader_amount_rate, row.suspected_insider_hold_rate));
   const wash = optionalBoolean(row.is_wash_trading);
   const honeypot = optionalBoolean(row.is_honeypot);
+  const fieldPresent = keys => keys.some(key => Object.hasOwn(row, key));
   const mc = mcValue ?? 0;
   const created = createdValue ?? 0;
   const ageSec = created > 0 ? nowSec - created : 0;
@@ -295,16 +314,18 @@ export function discoveryScreen(row, config, nowSec = Date.now() / 1000) {
   else if (!(mc >= config.discoveryMinMarketCap && mc <= config.discoveryMaxMarketCap)) reasons.push('市值不在发现范围');
   if (liquidityValue === null) reasons.push('流动性数据未知');
   else if (liquidity < config.minLiquidity) reasons.push('流动性不足');
-  if (rug === null) reasons.push('rug风险数据未知');
+  if (rug === null) { if (fieldPresent(['rug_ratio'])) reasons.push('rug风险数据未知'); }
   else if (rug > 0.30) reasons.push('rug风险过高');
-  if (bundler === null) reasons.push('捆绑机器人数据未知');
-  else if (bundler > 0.30) reasons.push('捆绑机器人占比过高');
-  if (insider === null) reasons.push('内幕数据未知');
-  else if (insider > 0.30) reasons.push('内幕/老鼠仓占比过高');
-  if (wash === null) reasons.push('刷量数据未知');
+  if (bundler === null) {
+    if (fieldPresent(['bundler_rate', 'bundler_trader_amount_rate'])) reasons.push('捆绑机器人数据未知');
+  } else if (bundler > 0.30) reasons.push('捆绑机器人占比过高');
+  if (insider === null) {
+    if (fieldPresent(['rat_trader_amount_rate', 'suspected_insider_hold_rate'])) reasons.push('内幕数据未知');
+  } else if (insider > 0.30) reasons.push('内幕/老鼠仓占比过高');
+  if (wash === null) { if (fieldPresent(['is_wash_trading'])) reasons.push('刷量数据未知'); }
   else if (wash) reasons.push('检测到刷量');
   if (lower(config.chain) !== 'sol') {
-    if (honeypot === null) reasons.push('貔貅数据未知');
+    if (honeypot === null) { if (fieldPresent(['is_honeypot'])) reasons.push('貔貅数据未知'); }
     else if (honeypot) reasons.push('检测到貔貅盘');
   }
   const priorityBand = mc >= config.priorityMinMarketCap && mc <= config.priorityMaxMarketCap;
@@ -317,6 +338,10 @@ export function discoveryScreen(row, config, nowSec = Date.now() / 1000) {
     pass: reasons.length === 0, reasons, priorityBand, score, mc, liquidity, ageSec, signals,
     unknownFields: [
       mcValue === null ? 'marketCap' : null,
+      // The band above ran against FDV because no measured cap exists. The
+      // label must survive into the UI evidence view: an FDV-substituted
+      // pass is not the same fact as a market-cap pass.
+      mcDirect === null && mcFdv !== null ? 'marketCap(fdvBasis)' : null,
       createdValue === null ? 'createdAt' : null,
       liquidityValue === null ? 'liquidity' : null,
       rug === null ? 'rugRatio' : null,

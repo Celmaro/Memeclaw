@@ -69,6 +69,7 @@ export function parsePool(chain, pool, { capturedAtSec = Date.now() / 1000, stal
     source: 'geckoterminal',
     poolAddress: typeof attributes.address === 'string' ? attributes.address.toLowerCase() : null,
     pairCreatedAtSec: isoToSec(attributes.pool_created_at),
+    priceUsd: num(attributes.price_usd),
     fdvUsd: num(attributes.fdv_usd),
     marketCapUsd: num(attributes.market_cap_usd),
     liquidityUsd: liquidityFrom(attributes.reserve_in_usd),

@@ -3,7 +3,7 @@
 // This is deliberately NOT the bot's internal row shape. The bot's screen reads
 // a snake_case live-feed vocabulary (row.market_cap, row.is_honeypot,
 // row.creation_timestamp) and cannot represent "we looked and it was absent"
-// distinctly from "we never looked". This record can: every capability is
+// distinctly from a "never looked at all" state. This record can: every capability is
 // either a value or an explicit unresolved marker, so a downstream screen can
 // treat unknown as unknown instead of as safe.
 
@@ -24,6 +24,7 @@ export function createRecord({
   source,
   poolAddress = null,
   pairCreatedAtSec = null,
+  priceUsd = null,
   fdvUsd = null,
   marketCapUsd = null,
   liquidityUsd = null,
@@ -70,6 +71,9 @@ export function createRecord({
     // it is the pool that carries the liquidity.
     pairCreatedAtSec: pairCreatedAtSec,
     ageSec: pairCreatedAtSec === null ? null : Math.max(0, capturedAtSec - pairCreatedAtSec),
+    // Spot price when the source reports one (GT new_pools carries price_usd).
+    // Kept separate from size: price is a quote, size is a supply statement.
+    price: finiteOrNull(priceUsd),
     capturedAtSec,
     stale,
     // Named capabilities this source did NOT supply. Recorded as evidence

@@ -57,6 +57,16 @@ export const config = Object.freeze({
   // so bounding them here turns a crash-on-boot into an ignored variable.
   enrichLimit: boundedInteger(process.env.RADAR_ENRICH_LIMIT, 0, 0, 6),
   maxTrendingPages: boundedInteger(process.env.RADAR_MAX_TRENDING_PAGES, 1, 1, 3),
+  // Ingest discovery emitters — the multi-source fan-out that runs OFF the
+  // AVE shared clock (src/ingest/coordinator.mjs, per-host budgets in
+  // src/ingest/budget.mjs). Ships dark: a comma list such as "gt" opts a
+  // deployment in without a rebuild, so a deploy can never silently change
+  // what production discovers. Unknown names are reported at boot instead of
+  // being registered-but-dead (the memeland pumpdev trap).
+  ingestEmitters: Object.freeze(String(process.env.RADAR_INGEST_EMITTERS || '')
+    .split(',')
+    .map(entry => entry.trim().toLowerCase())
+    .filter(entry => entry.length > 0)),
   // Historical K-line backfills are optional; live observations still track outcomes.
   outcomeReadsPerCycle: 0,
   xReviewMode: 'manual',
