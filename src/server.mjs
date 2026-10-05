@@ -670,11 +670,27 @@ function allowedHosts(port) {
   return new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
 }
 
+// Host values an operator explicitly opted into for a proxied deployment. The
+// proxy terminates the client connection, so such a request is never loopback;
+// trust is decided by this explicit list alone, never by a Host the client
+// chose. Origin and Sec-Fetch-Site rules still apply to every accepted request.
+function cloudHosts(settings) {
+  const entries = Array.isArray(settings?.trustedHosts) ? settings.trustedHosts : [];
+  return new Set(entries.map(entry => String(entry).trim().toLowerCase()).filter(Boolean));
+}
+
 export function isTrustedLocalRequest(req, settings) {
-  if (!LOOPBACK_ADDRESSES.has(String(req.socket?.remoteAddress || ''))) return false;
-  const hosts = allowedHosts(settings.port);
   const host = String(req.headers?.host || '').toLowerCase();
-  if (!hosts.has(host)) return false;
+  const remoteAddress = String(req.socket?.remoteAddress || '');
+  // Two independent trust routes: the desktop path, which requires BOTH a
+  // loopback peer and a loopback Host, and the proxied path, where the
+  // operator named this exact Host and the peer is whoever the proxy is.
+  // A remote peer can never satisfy the desktop route because Host alone is
+  // client-controlled, so the loopback names stay useful only as a Host.
+  const desktop = LOOPBACK_ADDRESSES.has(remoteAddress) && allowedHosts(settings.port).has(host);
+  const cloud = cloudHosts(settings);
+  if (!desktop && !cloud.has(host)) return false;
+  const hosts = new Set([...allowedHosts(settings.port), ...cloud]);
 
   const origin = req.headers?.origin;
   if (origin) {

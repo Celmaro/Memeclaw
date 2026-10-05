@@ -9,6 +9,30 @@ function boundedInteger(value, fallback, minimum, maximum) {
   return Number.isInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : fallback;
 }
 
+// Container platforms must be able to reach the process from outside the
+// pod, but the desktop build must keep the loopback-only default that the
+// request gate in server.mjs is designed around. Only an explicit, known
+// interface name is accepted so a stray environment variable cannot silently
+// widen the listening surface to an unexpected address.
+const BIND_ADDRESSES = new Set(['127.0.0.1', 'localhost', '::1', '0.0.0.0', '::']);
+
+function bindAddress(value) {
+  const host = String(value || '').trim().toLowerCase();
+  return BIND_ADDRESSES.has(host) ? host : '127.0.0.1';
+}
+
+// Host headers a reverse proxy (Zeabur and friends) legitimately presents on
+// behalf of this service. Each entry is added to the same allowlist that
+// already covers the loopback names, so the Origin and Sec-Fetch-Site checks
+// downstream continue to enforce same-origin access. An empty set keeps the
+// desktop behaviour byte-for-byte identical.
+function trustedHosts(value) {
+  return Object.freeze(String(value || '')
+    .split(',')
+    .map(entry => entry.trim().toLowerCase())
+    .filter(entry => entry.length > 0));
+}
+
 export const config = Object.freeze({
   chain: 'robinhood',
   // Only expose chains with either published AVE support or a successful
@@ -16,7 +40,7 @@ export const config = Object.freeze({
   // success history or secondary safety coverage, so advertising them as
   // usable made an empty tab look like a healthy chain.
   supportedChains: Object.freeze(['sol', 'bsc', 'base', 'eth', 'robinhood']),
-  port: boundedInteger(process.env.RADAR_PORT, 3791, 1024, 65_535),
+  port: boundedInteger(process.env.RADAR_PORT || process.env.PORT, 3791, 1024, 65_535),
   scanIntervalMs: boundedInteger(process.env.SCAN_INTERVAL_MS, 300_000, 30_000, 30 * 60_000),
   // The public fast-feed build performs one hot-list request per turn. Deep
   // token reads are opt-in because a second endpoint can have a stricter
@@ -66,6 +90,12 @@ export const config = Object.freeze({
   liveLeadRetentionMs: 30 * 60_000,
   staleCandidateMs: 10 * 60_000,
   outcomeRetentionMs: 7 * 24 * 60 * 60_000,
-  stateDir: path.join(ROOT, 'state'),
+  // A container filesystem is disposable, so the state directory must be
+  // relocatable onto a persistent volume instead of sitting next to the code.
+  stateDir: process.env.RADAR_STATE_DIR
+    ? path.resolve(process.env.RADAR_STATE_DIR)
+    : path.join(ROOT, 'state'),
+  bindAddress: bindAddress(process.env.RADAR_BIND),
+  trustedHosts: trustedHosts(process.env.RADAR_TRUSTED_HOSTS),
   publicDir: path.join(ROOT, 'public')
 });

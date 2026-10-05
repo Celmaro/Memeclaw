@@ -1,0 +1,11 @@
+{
+  "$schema": "https://zeabur.com/schema/template.json",
+  "build": {
+    "dockerfile": {
+      "path": "Dockerfile"
+    }
+  },
+  "deploy": {
+    "startCommand": "npm start"
+  }
+}

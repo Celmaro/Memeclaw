@@ -95,9 +95,12 @@ server.maxRequestsPerSocket = 100;
 
 await new Promise((resolve, reject) => {
   server.once('error', reject);
-  server.listen(config.port, '127.0.0.1', resolve);
+  // Defaults to 127.0.0.1. A container must listen on 0.0.0.0 to be reachable
+  // through its platform proxy, which is what RADAR_BIND opts into.
+  server.listen(config.port, config.bindAddress, resolve);
 });
-console.log(`Meme雷达：http://127.0.0.1:${config.port}`);
+const displayHost = config.bindAddress === '0.0.0.0' || config.bindAddress === '::' ? '[::]' : config.bindAddress;
+console.log(`Meme雷达：http://${displayHost}:${config.port}`);
 console.log('只读扫描器：交易执行永久关闭');
 let closing = false;
 function shutdown() {
