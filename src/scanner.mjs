@@ -808,12 +808,37 @@ export class Scanner {
             status: candidate.status
           });
           lastAuditHealth = { ...candidate.auditHealth, address: token.address, checkedAt: auditedAt };
-          if (secondary) lastSecondaryHealth = {
-            checkedAt: secondary.checkedAt,
-            complete: secondary.complete,
-            status: secondary.status,
-            sources: secondary.sources
-          };
+          if (secondary) {
+            // AVE never calls a security endpoint, so auditMeta always reports
+            // 'security' as missing. That literal described AVE's own request
+            // set, not what the system actually knows: the secondary validator
+            // resolves security from GoPlus. Record the difference so the API
+            // stops telling the UI that security evidence is absent when it
+            // was just fetched. Holders and traders stay missing - no wired
+            // source returns them.
+            const goPlus = secondary.sources?.goPlus;
+            // A GoPlus 'OK' status already means a record was parsed, but the
+            // verdict can still be UNKNOWN when safety fields came back absent.
+            // Only clear 'security' when real flags actually arrived.
+            const resolvedFields = Object.values(secondary.security?.fields || {})
+              .filter(value => value === true || value === false);
+            const securityResolved = goPlus?.status === 'OK' && resolvedFields.length > 0
+              && secondary.security?.verdict !== 'UNKNOWN';
+            const resolvedEvidence = securityResolved ? ['security'] : [];
+            lastSecondaryHealth = {
+              checkedAt: secondary.checkedAt,
+              complete: secondary.complete,
+              status: secondary.status,
+              sources: secondary.sources,
+              resolvedEvidence
+            };
+            if (resolvedEvidence.length && Array.isArray(lastAuditHealth.missingEvidence)) {
+              lastAuditHealth = {
+                ...lastAuditHealth,
+                missingEvidence: lastAuditHealth.missingEvidence.filter(name => !resolvedEvidence.includes(name))
+              };
+            }
+          }
           if (audit._meta?.transportComplete === false && !audit._meta?.earlyExit) auditHadError = true;
           if (secondary && secondary.status === 'DEGRADED'
             && Object.values(secondary.sources || {}).some(source => source?.status !== 'UNSUPPORTED')) auditHadError = true;

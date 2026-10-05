@@ -321,7 +321,7 @@ test('missing or malformed GoPlus safety fields stay UNKNOWN and degrade the res
 });
 
 test('unsupported chains never make external requests', async () => {
-  for (const chain of ['robinhood', 'arc', 'stable']) {
+  for (const chain of ['arc', 'stable']) {
     let calls = 0;
     const result = await new SecondaryValidator({ fetchImpl: async () => { calls += 1; throw new Error('must not be called'); } })
       .validate({ chain, tokenAddress: evmAddress });
@@ -330,6 +330,25 @@ test('unsupported chains never make external requests', async () => {
     assert.equal(result.sources.dexScreener.status, 'UNSUPPORTED');
     assert.equal(result.sources.goPlus.status, 'UNSUPPORTED');
   }
+});
+
+test('robinhood uses its verified DexScreener and GoPlus chain ids', async () => {
+  assert.equal(secondaryChainSupport.dexScreener.robinhood, 'robinhood');
+  assert.equal(secondaryChainSupport.goPlus.robinhood, '4663');
+  const urls = [];
+  const result = await new SecondaryValidator({
+    fetchImpl: async url => {
+      urls.push(url);
+      return url.includes('dexscreener') ? jsonResponse([completeDexPair({ chainId: 'robinhood', dexId: 'uniswap' })])
+        : jsonResponse({ code: 1, result: { [evmAddress]: { is_honeypot: '0', is_open_source: '1', buy_tax: '0', sell_tax: '0' } } });
+    }
+  }).validate({ chain: 'robinhood', tokenAddress: evmAddress });
+
+  assert.ok(urls.some(url => url.includes('/token-pairs/v1/robinhood/')));
+  assert.ok(urls.some(url => url.includes('/token_security/4663')));
+  assert.equal(result.sources.dexScreener.status, 'OK');
+  assert.equal(result.sources.goPlus.status, 'OK');
+  assert.equal(result.security.fields.isHoneypot, false);
 });
 
 test('invalid addresses fail before either supported source is called', async () => {
@@ -411,9 +430,9 @@ test('Solana uses its verified endpoints, preserves address case, and evaluates 
 
 test('exported support map contains only verified chain identifiers', () => {
   assert.deepEqual(secondaryChainSupport.dexScreener, {
-    sol: 'solana', bsc: 'bsc', base: 'base', eth: 'ethereum'
+    sol: 'solana', bsc: 'bsc', base: 'base', eth: 'ethereum', robinhood: 'robinhood'
   });
   assert.deepEqual(secondaryChainSupport.goPlus, {
-    sol: 'solana', eth: '1', bsc: '56', base: '8453'
+    sol: 'solana', eth: '1', bsc: '56', base: '8453', robinhood: '4663'
   });
 });

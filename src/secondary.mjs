@@ -1,12 +1,17 @@
 import { validTokenAddress } from './address.mjs';
 import { verifiedAvePoolEvidence } from './pool-identity.mjs';
 
-const DEX_CHAIN_IDS = Object.freeze({ sol: 'solana', bsc: 'bsc', base: 'base', eth: 'ethereum' });
+// Robinhood is present on both providers and was verified live against real
+// pairs, not docs: DexScreener returns chainId "robinhood" for
+// /token-pairs/v1/robinhood/<address>, and GoPlus lists {"name":"Robinhood",
+// "id":"4663"} in /api/v1/supported_chains and returns 37 populated security
+// fields for /api/v1/token_security/4663. The earlier "no verified chain id"
+// comment was stale and left the only scanning chain with zero secondary
+// coverage, which reported every security field as unknown.
+const DEX_CHAIN_IDS = Object.freeze({ sol: 'solana', bsc: 'bsc', base: 'base', eth: 'ethereum', robinhood: 'robinhood' });
 // Fast overlays must use the same verified chain map as deep validation.
-// Robinhood Chain currently has no verified DexScreener chain id here; a
-// speculative request only wastes time and makes the UI overstate coverage.
 const DEX_BATCH_CHAIN_IDS = DEX_CHAIN_IDS;
-const GOPLUS_EVM_CHAIN_IDS = Object.freeze({ eth: '1', bsc: '56', base: '8453' });
+const GOPLUS_EVM_CHAIN_IDS = Object.freeze({ eth: '1', bsc: '56', base: '8453', robinhood: '4663' });
 
 const NUMBER_PATTERN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
 const DEFAULT_MAX_BYTES = 1_000_000;

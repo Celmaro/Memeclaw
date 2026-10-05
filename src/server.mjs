@@ -506,15 +506,15 @@ function publicSourceHealth(source = {}) {
   if (source.lastAudit && typeof source.lastAudit === 'object') {
     const ave = source.lastAudit.provider === 'AVE';
     const endpoints = {};
-    for (const name of ['info', 'security', 'pool', 'holders', 'traders', 'candles']) {
+    for (const name of AUDIT_EVIDENCE) {
       if (source.lastAudit.endpoints?.[name]) endpoints[name] = endpointHealth(source.lastAudit.endpoints[name], ave ? 'AVE' : undefined);
     }
     result.lastAudit = {
       ...(ave ? { provider: 'AVE', transportComplete: source.lastAudit.transportComplete === true,
         marketComplete: source.lastAudit.marketComplete === true, evidenceComplete: source.lastAudit.evidenceComplete === true,
         marketFresh: source.lastAudit.marketFresh === true, capturedAt: optionalMarketNumber(source.lastAudit.capturedAt),
-        missingEvidence: ['info', 'security', 'pool', 'holders', 'traders', 'candles'].filter(name => source.lastAudit.missingEvidence?.includes(name)),
-        requestedEndpoints: ['info', 'security', 'pool', 'holders', 'traders', 'candles'].filter(name => source.lastAudit.requestedEndpoints?.includes(name)) } : {}),
+        missingEvidence: AUDIT_EVIDENCE.filter(name => source.lastAudit.missingEvidence?.includes(name)),
+        requestedEndpoints: AUDIT_EVIDENCE.filter(name => source.lastAudit.requestedEndpoints?.includes(name)) } : {}),
       complete: source.lastAudit.complete === true,
       checkedAt: finite(source.lastAudit.checkedAt || source.lastAudit.auditedAt),
       code: ave ? AVE_PUBLIC_CODES.has(source.lastAudit.code) ? source.lastAudit.code : '' : publicCode(source.lastAudit.code),
@@ -526,6 +526,7 @@ function publicSourceHealth(source = {}) {
       complete: source.lastSecondary.complete === true,
       checkedAt: finite(source.lastSecondary.checkedAt),
       status: text(source.lastSecondary.status, 24),
+      resolvedEvidence: AUDIT_EVIDENCE.filter(name => source.lastSecondary.resolvedEvidence?.includes(name)),
       sources: {
         dexScreener: secondaryEndpointHealth(source.lastSecondary.sources?.dexScreener),
         goPlus: secondaryEndpointHealth(source.lastSecondary.sources?.goPlus)
@@ -830,6 +831,7 @@ function allowedChainIds(supportedChains) {
 }
 
 const versionValue = value => typeof value === 'string' && /^(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})$/.test(value) ? value : null;
+const AUDIT_EVIDENCE = Object.freeze(['info', 'security', 'pool', 'holders', 'traders', 'candles']);
 const AVE_PUBLIC_CODES = new Set(['AVE_AUTH', 'AVE_RATE_LIMIT', 'AVE_RATE_LIMITED', 'AVE_QUOTA', 'AVE_BUDGET', 'AVE_HOURLY_BUDGET', 'AVE_TOTAL_BUDGET', 'AVE_BUDGET_STORE', 'AVE_DISCOVERY_RESERVE',
   'AVE_STORAGE', 'AVE_SCHEMA', 'AVE_SIZE', 'AVE_TIMEOUT', 'AVE_CHANGED', 'AVE_ABORTED', 'AVE_DISABLED', 'AVE_BUSY', 'AVE_CONNECT', 'AVE_WAIT',
   'AVE_NETWORK', 'AVE_UPSTREAM', 'AVE_CONFIG', 'AVE_KEY', 'AVE_INPUT', 'AVE_COOLDOWN', 'AVE_RELOAD', 'AVE_FIELD_UNVERIFIED', 'AVE_REQUEST_FAILED']);
