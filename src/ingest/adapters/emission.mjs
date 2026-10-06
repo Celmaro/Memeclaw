@@ -203,7 +203,12 @@ export function createLogsEmitter({
   windowStart = null,
 } = {}) {
   const budgetRef = budget ?? createBudget('publicnode');
-  let lastTo = windowStart;
+  // One cursor PER CHAIN. A single shared lastTo mixed block heights across
+  // chains — measured in production: after bsc's window (head ≈125.9M) the
+  // base pass computed `head 52.2M - 125.9M` and logged "only -73752559 new
+  // blocks since last window", permanently skipping base emission. A chain
+  // with no cursor yet falls back to `windowStart` in discover() below.
+  const lastToByChain = new Map();
 
   return {
     id: 'logs',
@@ -259,6 +264,7 @@ export function createLogsEmitter({
         head = Number.parseInt(String(blockCall.result ?? '0x0'), 16);
       }
       let fromBlock;
+      let lastTo = lastToByChain.has(chain) ? lastToByChain.get(chain) : windowStart;
       if (lastTo === null) {
         if (head === null) {
           const reason = 'eth_blockNumber unavailable: cannot anchor a log window';
@@ -319,6 +325,7 @@ export function createLogsEmitter({
       // next successful pass should look at NEW blocks, not replay the ones we
       // just failed on forever.
       lastTo = fromBlock + span - 1;
+      lastToByChain.set(chain, lastTo);
       return { hints, records: [], findings, skipped, window: { fromBlock, toBlock: lastTo, span } };
     },
   };
