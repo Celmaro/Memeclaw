@@ -373,6 +373,23 @@ export const SOURCE_BUDGETS = Object.freeze({
     breakerThreshold: 3,
     perRotationRowCap: 10,
   },
+  // Keyed and optional, so the ceiling is set by what we can afford to lose:
+  // one holder lookup per rotation on one chain. `row` is the measure that
+  // matters here, not the bucket — the bucket protects the host, and a
+  // five-chain rotation must not be able to spend a whole key's quota on one
+  // noisy chain. Nothing in this table has been probed at this pace; the
+  // numbers are conservative, and `budgetStopReason` in the P2 wiring is what
+  // tells the operator when this entry becomes the binding constraint.
+  helius: {
+    name: 'Helius',
+    host: 'mainnet.helius-rpc.com',
+    spacingMs: 1_000,
+    capacity: 2,
+    refillMs: 10_000,
+    cooldownFloorMs: 60_000,
+    breakerThreshold: 3,
+    perRotationRowCap: 1,
+  },
 });
 
 export function createBudget(key, overrides = {}) {
