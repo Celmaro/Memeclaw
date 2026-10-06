@@ -9,6 +9,7 @@ import { tokenKey } from './local-store.mjs';
 import { reconcileLiveLeads } from './live-leads.mjs';
 import { toDiscoveryRow } from './ingest/row-contract.mjs';
 import { signalEvidenceBundle } from './ingest/signals.mjs';
+import { feedOutcome, OUTCOME_THRESHOLDS } from './learning.mjs';
 
 const numberOrNull = value => {
   if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null;
@@ -717,6 +718,31 @@ export class Scanner {
         if (finding.level === 'info') continue;
         events = addEvent(events, 'INGEST', finding.reason, chain,
           { stage: 'discovery', source: finding.source || 'ingest' });
+      }
+      // P5 learning: feed each row's FIRST h2 sample into the append-only
+      // learning log exactly once. The prior-cycle diff keeps the log small
+      // and feedOutcome's feedKey guard makes a missed diff safe anyway. The
+      // label is decided here so a mid-band outcome is recorded as NEUTRAL
+      // (logged, weights untouched) instead of falling through as UNKNOWN.
+      // Learning is observational state: an I/O failure here lands as an
+      // event and can never stall the funnel.
+      try {
+        const priorH2 = new Set((prior.outcomes || []).filter(item => item?.samples?.h2)
+          .map(item => `${item.chain}:${addressKey(item.address)}`));
+        for (const item of outcomes) {
+          const sample = item?.samples?.h2;
+          if (!sample || priorH2.has(`${item.chain}:${addressKey(item.address)}`)) continue;
+          const ratio = 1 + (numberOrNull(sample.return) ?? 0);
+          const verdict = ratio >= OUTCOME_THRESHOLDS.winGainRatio ? 'WIN'
+            : ratio <= OUTCOME_THRESHOLDS.lossLossRatio ? 'LOSS' : 'NEUTRAL';
+          feedOutcome(settings.stateDir, {
+            chain: item.chain, address: item.address, window: 'h2',
+            at: sample.at, gainRatio: ratio, result: verdict,
+            feedKey: `${item.chain}:${addressKey(item.address)}:h2`
+          });
+        }
+      } catch (error) {
+        events = addEvent(events, 'LEARNING', `学习日志写入失败：${error.message}`, chain, { stage: 'learning' });
       }
       let lastAuditHealth = prior.sourceHealth?.lastAudit || null;
       let lastSecondaryHealth = prior.sourceHealth?.lastSecondary || null;
