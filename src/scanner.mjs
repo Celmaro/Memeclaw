@@ -415,7 +415,14 @@ function emptyScope() {
 function addEvent(events, type, message, chain, data = {}) {
   if (['CANDIDATE_NEW', 'RISK_WORSENED'].includes(type) && (events || []).some(event =>
     event.type === type && event.chain === chain && event.address === data.address && Date.now() - event.at < 30 * 60_000)) return events;
-  return [{ at: Date.now(), type, message, chain, ...data }, ...(events || [])].slice(0, 500);
+  const entry = { at: Date.now(), type, message, chain, ...data };
+  // Every state event is also one stdout line, emitted at creation time.
+  // The dashboard and /api/status are views over this same array; a console
+  // that stays silent after boot makes the container undebuggable from its
+  // log pane — quiet-healthy and wedged look identical.
+  const extras = Object.keys(data).length > 0 ? ` ${JSON.stringify(data)}` : '';
+  console.log(`${new Date(entry.at).toISOString()} [${type}] ${chain || '-'} ${message}${extras}`);
+  return [entry, ...(events || [])].slice(0, 500);
 }
 
 // The discovery funnel's provider filter: the canonical AVE introducer plus
@@ -1118,12 +1125,16 @@ export class Scanner {
       if (this.stopped) return;
       const started = Date.now();
       let deferredUntil = 0;
+      // What this wake-up did, for the one-line heartbeat in the finally
+      // block. 'busy' = a cycle was already running when the timer fired.
+      let outcome = 'busy';
       try {
         const marketState = this.provider.snapshot?.();
-        if (marketState?.manualResetRequired) return;
+        if (marketState?.manualResetRequired) { outcome = 'manual_reset_required'; return; }
         const readyAt = providerReadyAt(this.provider);
         if (readyAt > started) {
           deferredUntil = readyAt;
+          outcome = 'deferred';
           return;
         }
         if (!this.running) {
@@ -1139,11 +1150,13 @@ export class Scanner {
             const scope = c => c === this.activeChain ? this.state.value : this.state.value.chainStates?.[c];
             return num(scope(a)?.lastAttemptAt) - num(scope(b)?.lastAttemptAt);
           })[0];
-          if (!next) return;
+          if (!next) { outcome = 'no_eligible_chain'; return; }
           if (next !== this.activeChain) this.activateChain(next, true);
           await this.cycle();
+          outcome = 'cycle';
         }
       } catch (error) {
+        outcome = 'error';
         // Let the local supervisor restart instead of leaving a silently dead scheduler.
         console.error('扫描调度异常：' + String(error?.code || 'STATE_WRITE_FAILED'));
         process.exitCode = 1;
@@ -1163,6 +1176,22 @@ export class Scanner {
           // into millisecond retries. These wake-ups never bypass the guard.
           this.nextTickAt = Date.now() + Math.min(wait, 3600000);
           this.timer = setTimeout(() => { this.nextTickAt = 0; void tick(); }, Math.min(wait, 3600000));
+          // One heartbeat per wake-up. Every scheduler outcome is now visible
+          // in the container log: a cycle prints its funnel counts, a
+          // cooldown prints when it expires, a wedge prints 'busy' or an
+          // error instead of silence. nextInMs is the same number that
+          // governs the next tick, so "nothing for 10 minutes" becomes a
+          // queryable fact rather than a suspicion.
+          const v = this.state.value;
+          const stamped = new Date().toISOString();
+          const nextInMs = Math.max(0, this.nextTickAt - Date.now());
+          if (outcome === 'cycle') {
+            console.log(`${stamped} [HEARTBEAT] cycle chain=${v.activeChain} scan=${v.scanCount ?? 0} status=${v.status} discovered=${v.discoveredCount ?? 0} prequalified=${v.prequalifiedCount ?? 0} candidates=${(v.candidates || []).length} tookMs=${Date.now() - started} nextInMs=${nextInMs}`);
+          } else if (outcome === 'deferred') {
+            console.log(`${stamped} [HEARTBEAT] deferred until=${new Date(deferredUntil).toISOString()} nextInMs=${nextInMs}`);
+          } else {
+            console.log(`${stamped} [HEARTBEAT] ${outcome} nextInMs=${nextInMs}`);
+          }
         }
       }
     };
