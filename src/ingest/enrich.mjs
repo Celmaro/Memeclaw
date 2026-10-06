@@ -449,10 +449,18 @@ export class DexPaprikaVolumeLane {
     budget = null,
     now = () => Date.now(),
     cadenceMs = DEXPAPRIKA_1H_CADENCE_MS,
+    apiKey = process.env.DEXPAPRIKA_API_KEY ?? '',
   } = {}) {
     this.fetchImpl = fetchImpl;
     this.now = now;
     this.cadenceMs = Math.max(0, cadenceMs);
+    // Live-verified auth: `Authorization: Bearer <key>` flips /usage from
+    // {plan:"keyless", x-credits-limit:10000} to {plan:"free",
+    // x-credits-limit:100000} — 10x the cache-miss pool. X-API-Key and
+    // ?apikey= are NOT honored (both stay keyless), so the header form is the
+    // only one worth sending. The key rides a header, never the URL, so
+    // HttpError's recorded URL can never leak it.
+    this.apiKey = String(apiKey ?? '').trim();
     this.budget = budget ?? createBudget('dexpaprika');
     this.http = http ?? new IngestHttp({ budget: this.budget, fetchImpl });
     this.cache = new Map();
@@ -532,7 +540,10 @@ export class DexPaprikaVolumeLane {
       : `https://api.dexpaprika.com/networks/${chain}/tokens/${address}`;
     let response;
     try {
-      response = await this.http.json(url, { chain });
+      response = await this.http.json(url, {
+        chain,
+        ...(this.apiKey ? { headers: { authorization: `Bearer ${this.apiKey}` } } : {}),
+      });
     } catch (error) {
       const throttled = error instanceof HttpError ? error.throttled : false;
       return {

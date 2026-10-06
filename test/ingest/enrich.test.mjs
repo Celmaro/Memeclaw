@@ -450,6 +450,20 @@ test('a DexPaprika fetch inside the cadence asks nothing', async () => {
   assert.equal(calls, 2);
 });
 
+test('the keyed lane sends Authorization Bearer and the keyless lane sends nothing', async () => {
+  const seen = [];
+  const fetchImpl = async (url, options = {}) => {
+    seen.push(options.headers?.authorization ?? null);
+    return jsonResponse({ volume_usd_1h: 7 }, { headers: { 'x-credits-remaining': '5000', 'cf-cache-status': 'MISS' } });
+  };
+  const keyed = new DexPaprikaVolumeLane({ fetchImpl, budget: fastBudget('dexpaprika'), now: () => 10, apiKey: 'test-key-never-real' });
+  await keyed.volume1h('eth', { poolId: 'keyed' });
+  assert.equal(seen[0], 'Bearer test-key-never-real', 'the verified auth form is Authorization: Bearer');
+  const keyless = new DexPaprikaVolumeLane({ fetchImpl, budget: fastBudget('dexpaprika'), now: () => 20, apiKey: '' });
+  await keyless.volume1h('eth', { poolId: 'keyless' });
+  assert.equal(seen[1], null, 'without a key the request must carry no authorization header');
+});
+
 test('the cadence guard is per pool, so one hot pool cannot starve the rotation', async () => {
   const fetchImpl = async () => jsonResponse({ volume_usd_1h: 100 });
   const lane = new DexPaprikaVolumeLane({ fetchImpl, budget: fastBudget('dexpaprika'), now: () => 5_000 });

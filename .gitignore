@@ -8,6 +8,7 @@ node_modules/
 .runtime/
 coverage/
 dist/
+research/
 
 state/**
 logs/**
