@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const RELEASE_SOURCE_MANIFEST = 'packaging/release-source.json';
-const privateDirectories = new Set(['.git', '.runtime', '.local-data', '.agents', '.codex', '.ssh', '.aws', 'state', 'logs', 'node_modules', 'runtime']);
+const privateDirectories = new Set(['.git', '.runtime', '.local-data', '.agents', '.codex', '.ssh', '.aws', 'state', 'logs', 'node_modules', 'runtime', 'research']);
 const credentialNames = new Set(['.npmrc', 'ave-credentials.json', 'gmgn-api-key', 'telegram-bot-token', 'agent-private-key', 'gmgn-pending-signing-key.pem']);
 
 export function privateSourcePath(name) {
