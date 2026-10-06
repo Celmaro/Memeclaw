@@ -11,6 +11,8 @@ import { createServer, toPublicStatus } from './server.mjs';
 import { RadarControls } from './local-store.mjs';
 import { LiveDiscovery } from './live-discovery.mjs';
 import { createIngestDiscovery } from './ingest/coordinator.mjs';
+import { attachEnrichment } from './ingest/enrich-wiring.mjs';
+import { attachEmission } from './ingest/emission-wiring.mjs';
 import { configureWindowsSystemProxy } from './windows-proxy.mjs';
 
 // Windows portable supervisor bridge: keep the packaged EXE launcher intact.
@@ -78,7 +80,17 @@ const controls = new RadarControls(config.stateDir, config.supportedChains, stat
 const knownEmitters = new Set(['gt']);
 const unknownEmitters = config.ingestEmitters.filter(name => !knownEmitters.has(name));
 if (unknownEmitters.length > 0) console.warn(`未识别的 RADAR_INGEST_EMITTERS 项已忽略：${unknownEmitters.join(', ')}`);
-const ingest = config.ingestEmitters.includes('gt') ? createIngestDiscovery() : null;
+// Composition order is load-bearing: emission is INNER (the promotion pass
+// runs right after coordinator discovery, so existence-verified records exist
+// before anyone enriches them) and enrichment is OUTER (every record — GT,
+// promoted hints and all — gets one size/volume/holders pass before the
+// screen sees it; emission rows carry no size at all and would otherwise die
+// at 流动性数据未知 on their first rotation). Both decorators stay dark until
+// their own gate opens: RADAR_INGEST_EMITTERS opens the lane itself,
+// MEMECLAW_EMISSION picks the emitters inside it (absent => none).
+const ingest = config.ingestEmitters.includes('gt')
+  ? attachEnrichment(attachEmission(createIngestDiscovery()))
+  : null;
 scanner = new Scanner({ provider: market, secondary: new SecondaryValidator(), state, controls, sharedRequestIntervalMs, ingest });
 const liveDiscovery = new LiveDiscovery({ provider: market, cacheOnly: true, marketOverlay: new DexBatchMarketOverlay() });
 const version = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;

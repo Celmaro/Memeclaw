@@ -23,7 +23,13 @@ await test('TokenBucket refills over time and gates on capacity', () => {
   const bucket = new TokenBucket({ capacity: 2, refillMs: 1000 });
   assert.equal(bucket.tokens, 2);
   bucket.tokens -= 2;
-  assert.equal(bucket.tokens, 0);
+  // The bucket refills against the wall clock, so this reads 0 + whatever the
+  // CPU took between the drain and the read — asserting an exact 0 made the
+  // test fail under parallel load at 0.002 (measured: full-suite only, 24/24
+  // standalone). Assert the contract instead: a just-drained bucket has earned
+  // nothing beyond sub-100ms of refill, and never goes negative.
+  const drained = bucket.tokens;
+  assert.ok(drained >= 0 && drained < 0.1, `drained bucket must read ~0, got ${drained}`);
   // availableAfter must be non-mutating: asking about the future cannot hand out
   // tokens the bucket has not earned.
   const before = bucket.tokens;
