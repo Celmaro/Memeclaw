@@ -23,6 +23,13 @@ const SOURCE_PROVIDERS = Object.freeze({
   geckoterminal: 'GECKOTERMINAL',
   dexscreener: 'DEXSCREENER',
   dexpaprika: 'DEXPAPRIKA',
+  // Promoted emission hints (existence-oracle verified) arrive as source
+  // 'logs'/'profiles' and map to the ONE tag toCoordinatorEmitter() registers
+  // in the coordinator's providers set. The scanner's allowedDiscoveryRow
+  // therefore admits them only when the MEMECLAW_EMISSION gate was open;
+  // `ingestSource` below keeps the true origin for provenance.
+  logs: 'EMISSION',
+  profiles: 'EMISSION',
 });
 
 function providerForSource(source) {
