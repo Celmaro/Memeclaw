@@ -63,8 +63,14 @@ export const config = Object.freeze({
   // deployment in without a rebuild, so a deploy can never silently change
   // what production discovers. Unknown names are reported at boot instead of
   // being registered-but-dead (the memeland pumpdev trap).
+  //
+  // Delimiter accepts BOTH ',' and whitespace — measured, not stylistic:
+  // Zeabur's `variable update` stored `-k RADAR_INGEST_EMITTERS=gt,gmgn,
+  // dexpaprika,pumpfun` space-joined (`gt gmgn dexpaprika pumpfun`) while a
+  // CSV-quoted value kept its comma, so a comma-only split would parse the
+  // space form as ONE unknown name and silently leave the lane dark.
   ingestEmitters: Object.freeze(String(process.env.RADAR_INGEST_EMITTERS || '')
-    .split(',')
+    .split(/[\s,]+/)
     .map(entry => entry.trim().toLowerCase())
     .filter(entry => entry.length > 0)),
   // Historical K-line backfills are optional; live observations still track outcomes.
