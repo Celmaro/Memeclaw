@@ -77,7 +77,7 @@ const controls = new RadarControls(config.stateDir, config.supportedChains, stat
 // Ingest emitters are env-gated (config.ingestEmitters); every budget they
 // use is per-host and independent of the AVE shared clock — minimumGapMs
 // below stays AVE-only by construction.
-const knownEmitters = new Set(['gt']);
+const knownEmitters = new Set(['gt', 'gmgn', 'dexpaprika', 'pumpfun']);
 const unknownEmitters = config.ingestEmitters.filter(name => !knownEmitters.has(name));
 if (unknownEmitters.length > 0) console.warn(`未识别的 RADAR_INGEST_EMITTERS 项已忽略：${unknownEmitters.join(', ')}`);
 // Composition order is load-bearing: emission is INNER (the promotion pass
@@ -88,8 +88,9 @@ if (unknownEmitters.length > 0) console.warn(`未识别的 RADAR_INGEST_EMITTERS
 // at 流动性数据未知 on their first rotation). Both decorators stay dark until
 // their own gate opens: RADAR_INGEST_EMITTERS opens the lane itself,
 // MEMECLAW_EMISSION picks the emitters inside it (absent => none).
-const ingest = config.ingestEmitters.includes('gt')
-  ? attachEnrichment(attachEmission(createIngestDiscovery()))
+const enabledEmitters = config.ingestEmitters.filter(name => knownEmitters.has(name));
+const ingest = enabledEmitters.length > 0
+  ? attachEnrichment(attachEmission(createIngestDiscovery({ emitters: enabledEmitters })))
   : null;
 scanner = new Scanner({ provider: market, secondary: new SecondaryValidator(), state, controls, sharedRequestIntervalMs, ingest });
 const liveDiscovery = new LiveDiscovery({ provider: market, cacheOnly: true, marketOverlay: new DexBatchMarketOverlay() });

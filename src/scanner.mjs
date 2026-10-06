@@ -9,6 +9,7 @@ import { tokenKey } from './local-store.mjs';
 import { reconcileLiveLeads } from './live-leads.mjs';
 import { toDiscoveryRow } from './ingest/row-contract.mjs';
 import { signalEvidenceBundle } from './ingest/signals.mjs';
+import { routeIngestRows } from './ingest/routing.mjs';
 import { feedOutcome, OUTCOME_THRESHOLDS } from './learning.mjs';
 
 const numberOrNull = value => {
@@ -446,6 +447,10 @@ export class Scanner {
     // OFF the AVE shared clock on its own per-host budgets; null keeps the
     // cycle byte-for-byte on the original single-source path.
     this.ingest = ingest;
+    // chain -> rows discovered for chains whose AVE turn has not come yet
+    // (routing.mjs); in-memory by design — a restart loses only rows the very
+    // next rotation re-discovers.
+    this.ingestPark = new Map();
     this.sharedRequestIntervalMs = Math.max(0, num(sharedRequestIntervalMs));
     this.supportedChains = [...settings.supportedChains];
     this.activeChain = this.supportedChains.includes(state.value.activeChain) ? state.value.activeChain : settings.chain;
@@ -646,9 +651,16 @@ export class Scanner {
       const ingestFindings = [];
       if (this.ingest) {
         try {
-          const ingested = await this.ingest.discover(chain, { rotationId: num(prior.scanCount) + 1 });
-          ingestRows = ingested.records.map(record => toDiscoveryRow(record)).filter(Boolean);
+          // All supported chains, one rotation: ingest emitters run on their
+          // own per-host budgets with no AVE-clock coupling, so discovery
+          // coverage no longer waits for a chain's AVE turn. Rows for other
+          // chains are parked (routing.mjs) instead of screened against this
+          // cycle's chain settings; the active chain gets fresh rows first and
+          // its parked backlog only where fresh did not arrive.
+          const ingested = await this.ingest.discoverAll(this.supportedChains, { rotationId: num(prior.scanCount) + 1 });
+          const rows = ingested.records.map(record => toDiscoveryRow(record)).filter(Boolean);
           ingestFindings.push(...(ingested.findings || []));
+          ingestRows = routeIngestRows(this.ingestPark, rows, chain);
         } catch (error) {
           ingestFindings.push({ level: 'error', chain, source: 'ingest', reason: `ingest discovery failed: ${error.message}` });
         }

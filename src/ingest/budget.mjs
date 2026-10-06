@@ -220,8 +220,14 @@ export class SourceBudget {
         await this.sleep(spacingReady - now);
         continue;
       }
-      await this.bucket.take();
+      // Reserve the slot BEFORE yielding on the bucket. bucket.take() awaits,
+      // and a concurrent caller for another chain could pass the spacing check
+      // in that window: two chains' requests then double-fire and the host's
+      // measured spacing guarantee is silently void. Check-and-reserve must be
+      // one synchronous step (JS runs it atomically); the bucket then gates the
+      // already-reserved slot, and any bucket wait only pushes the fire later.
       this.lastRequestAt = this.clock();
+      await this.bucket.take();
       this.#countRow(chain);
       return true;
     }
@@ -380,6 +386,21 @@ export const SOURCE_BUDGETS = Object.freeze({
   // noisy chain. Nothing in this table has been probed at this pace; the
   // numbers are conservative, and `budgetStopReason` in the P2 wiring is what
   // tells the operator when this entry becomes the binding constraint.
+  // Measured live (2026-10): leaky bucket 5/5 per IP with trenches weight 2 →
+  // a 2-call burst, then 429 carrying x-ratelimit-reset (NO Retry-After).
+  // Every retry during cooldown extends a temporary IP ban by ~5s up to 5 min,
+  // so breakerThreshold is 2 (be strict) and this adapter never retries — one
+  // 429 costs a rotation, an escalated ban costs five.
+  gmgn: {
+    name: 'GMGN',
+    host: 'openapi.gmgn.ai',
+    spacingMs: 3_000,
+    capacity: 2,
+    refillMs: 15_000,
+    cooldownFloorMs: 90_000,
+    breakerThreshold: 2,
+    perRotationRowCap: 1,
+  },
   helius: {
     name: 'Helius',
     host: 'mainnet.helius-rpc.com',

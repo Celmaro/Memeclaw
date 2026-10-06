@@ -31,6 +31,30 @@ export const CHAIN_META = Object.freeze({
 
 export const SUPPORTED_INGEST_CHAINS = Object.freeze(Object.keys(GECKO_NETWORKS));
 
+// DexPaprika network ids — measured per chain (2026-10 probes): eth is spelled
+// `ethereum` here while GT spells it `eth`; robinhood is a first-class id on
+// this source even though GT's /networks list omits it.
+export const DEXPAPRIKA_NETWORKS = Object.freeze({
+  sol: 'solana',
+  eth: 'ethereum',
+  bsc: 'bsc',
+  base: 'base',
+  robinhood: 'robinhood',
+});
+
+// GMGN quote_address_type selector lists, taken verbatim from the vendor's own
+// client (OpenApiClient.ts TRENCHES_QUOTE_ADDRESS_TYPES) and live-verified:
+// POST /v1/trenches with robinhood's list returned 60 new_creation rows, 190 KB.
+// The list is per chain — sending another chain's list (or none) filters the
+// feed down to the wrong quote assets and silently returns fewer rows.
+export const GMGN_QUOTE_ADDRESS_TYPES = Object.freeze({
+  sol: Object.freeze([4, 5, 3, 1, 13, 0]),
+  bsc: Object.freeze([6, 7, 1, 16, 8, 3, 9, 10, 2, 17, 18, 0]),
+  base: Object.freeze([11, 3, 12, 13, 0]),
+  eth: Object.freeze([20, 11, 8, 3, 12, 1, 0]),
+  robinhood: Object.freeze([11, 20, 24, 12, 0]),
+});
+
 // Guard against a provider answering a solana request with a base pool. GT
 // prefixes every id with the network slug, so a cross-network leak is cheap to
 // detect and would otherwise silently attribute a token to the wrong chain.

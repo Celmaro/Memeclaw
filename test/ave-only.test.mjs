@@ -28,7 +28,17 @@ test('AVE production has no retired provider client, key store, worker or extern
       ...[...source.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g)].map(match => match[1])
     ];
     for (const specifier of imports) {
-      assert.doesNotMatch(specifier, /gmgn/i, file);
+      // Retired GMGN CLIENT only: those four files lived at src ROOT
+      // (asserted absent above), so their import shape is a root-relative
+      // path — './gmgn.mjs' / '../gmgn.mjs'. The blanket /gmgn/i check also
+      // banned any NEW module containing the word and failed the graph the
+      // moment src/ingest/adapters/gmgn.mjs (the keyed trenches emitter)
+      // was wired — measured regression, fixed to match the retired shape.
+      assert.doesNotMatch(
+        specifier,
+        /^(?:\.\.?\/)*(?:gmgn|gmgn-connection|gmgn-key-store|gmgn-readonly-worker)\.mjs$/,
+        `${file} imports a retired GMGN client module: ${specifier}`
+      );
       assert.ok(specifier.startsWith('.') || specifier.startsWith('node:'), `Unexpected runtime dependency: ${specifier}`);
       if (specifier.startsWith('.')) visit(path.resolve(path.dirname(file), specifier));
     }
